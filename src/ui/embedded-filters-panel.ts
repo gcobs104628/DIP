@@ -109,6 +109,7 @@ class EmbeddedFiltersPanel extends Container {
             value: 0
         });
 
+
         opacityRow.append(opacityLabel);
         opacityRow.append(opacitySlider);
 
@@ -118,6 +119,43 @@ class EmbeddedFiltersPanel extends Container {
         };
 
         opacitySlider.on('change', emitOpacity);
+        // ------- Outliers (KNN / Distance) -------
+        const knnKRow = new Container({ class: 'color-panel-row' });
+        const knnKLabel = new Label({ class: 'color-panel-row-label', text: 'KNN k' });
+        const knnKSlider = new MyFancySliderInput({
+            class: 'color-panel-row-slider',
+            min: 1,
+            max: 64,
+            step: 1,
+            value: 8
+        });
+        knnKRow.append(knnKLabel);
+        knnKRow.append(knnKSlider);
+
+        const knnTRow = new Container({ class: 'color-panel-row' });
+        const knnTLabel = new Label({ class: 'color-panel-row-label', text: 'Outlier Radius' });
+        const knnTSlider = new MyFancySliderInput({
+            class: 'color-panel-row-slider',
+            min: 0,
+            max: 1,
+            step: 0.001,
+            value: 0.05
+        });
+        knnTRow.append(knnTLabel);
+        knnTRow.append(knnTSlider);
+
+        // Run button (button-run, not live)
+        const runKnn = new Label({
+            class: 'panel-header-button',
+            text: 'Run'
+        });
+        tooltips.register(runKnn, 'Run KNN outlier filter', 'bottom');
+
+        runKnn.on('click', () => {
+            const k = Math.round(knnKSlider.value);
+            const threshold = knnTSlider.value;
+            events.fire('filter.knnOutlier', { k, threshold });
+        });
 
         // ------- Control row (reset) -------
         const controlRow = new Container({ class: 'color-panel-control-row' });
@@ -129,12 +167,18 @@ class EmbeddedFiltersPanel extends Container {
 
         controlRow.append(new Label({ class: 'panel-header-spacer' }));
         controlRow.append(reset);
+
+        controlRow.append(runKnn);
+
         controlRow.append(new Label({ class: 'panel-header-spacer' }));
 
         reset.on('click', () => {
             scaleMinSlider.value = -12;
             scaleMaxSlider.value = 2;
             opacitySlider.value = 0;
+            knnKSlider.value = 8;
+            knnTSlider.value = 0.05;
+            events.fire('filter.knnOutlier.reset');
 
             events.fire('filter.scale', { minScale: -12, maxScale: 2 });
             events.fire('filter.opacity', { threshold: 0 });
@@ -147,6 +191,9 @@ class EmbeddedFiltersPanel extends Container {
         this.append(scaleMinRow);
         this.append(scaleMaxRow);
         this.append(opacityRow);
+        this.append(knnKRow);
+        this.append(knnTRow);
+
         this.append(new Label({ class: 'panel-header-spacer' }));
         this.append(controlRow);
 

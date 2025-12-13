@@ -33,6 +33,9 @@ import { EditorUI } from './ui/editor';
 import { localizeInit } from './ui/localization';
 import { MaskTo3DTool } from './tools/mask-to-3d'; // 新增的 MaskTo3DTool
 import { ScaleFilterTool } from './tools/scale-filter'; // 路徑依你放的位置調整
+import { KnnOutlierFilterTool } from './tools/knn-outlier-filter';
+
+
 
 declare global {
     interface LaunchParams {
@@ -284,7 +287,15 @@ const main = async () => {
         scaleFilterTool.applyOpacity(threshold);
     });
 
+    const knnOutlierTool = new KnnOutlierFilterTool(events, scene);
 
+    events.on('filter.knnOutlier', ({ k, threshold }: { k: number; threshold: number }) => {
+        void knnOutlierTool.apply(k, threshold);
+    });
+    
+    events.on('filter.knnOutlier.reset', () => {
+        knnOutlierTool.reset();
+    });
 
     editorUI.toolsContainer.dom.appendChild(maskCanvas);
     // * 新增：監聽 'mask.import' 事件並儲存 Mask 資料到 Tool 中 *
