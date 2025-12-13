@@ -32,6 +32,8 @@ import { registerTransformHandlerEvents } from './transform-handler';
 import { EditorUI } from './ui/editor';
 import { localizeInit } from './ui/localization';
 import { MaskTo3DTool } from './tools/mask-to-3d'; // 新增的 MaskTo3DTool
+import { ScaleFilterTool } from './tools/scale-filter'; // 路徑依你放的位置調整
+
 declare global {
     interface LaunchParams {
         readonly files: FileSystemFileHandle[];
@@ -258,12 +260,15 @@ const main = async () => {
     // 註冊 MaskTo3DTool
     // 實例化 MaskTo3DTool
     const maskTo3DTool = new MaskTo3DTool(events, scene);
+    const scaleFilterTool = new ScaleFilterTool(events, scene);
 
     // 監聽 Mask 導入事件，現在它傳遞的是一個 Mask 陣列 (來自 right-toolbar.ts 的修改)
     events.on('mask.import', (masks: { filename: string, img: HTMLImageElement }[]) => {
         console.log(`[main.ts] Received 'mask.import' event. Storing ${masks.length} images.`);
         // ** 使用新的 setMasks 函式 **
         maskTo3DTool.setMasks(masks);
+
+
     });
 
     // 監聽 Mask-to-3D 執行事件 (這個應該已經存在且正確)
@@ -271,9 +276,17 @@ const main = async () => {
         maskTo3DTool.activate();
     });
 
+    // 監聽右側滑桿事件（right-toolbar.ts fire 的那個）
+    events.on('filter.scale', ({ minScale, maxScale }) => {
+        console.log('[main] filter.scale', minScale, maxScale);
+        scaleFilterTool.apply(minScale, maxScale);
+    });
+
+
+
     editorUI.toolsContainer.dom.appendChild(maskCanvas);
     // * 新增：監聽 'mask.import' 事件並儲存 Mask 資料到 Tool 中 *
-    
+
     // * 結束新增 *
     window.scene = scene;
 

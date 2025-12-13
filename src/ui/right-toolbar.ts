@@ -159,6 +159,90 @@ class RightToolbar extends Container {
             console.log("[UI] Mask-to-3D Clicked: Firing 'tool.maskTo3D' event.");
             events.fire("tool.maskTo3D");
         });
+        // ------------------------------
+        // Scale Filter UI (live update)
+        // ------------------------------
+        this.append(new Element({ class: 'right-toolbar-separator' }));
+
+        const scaleFilter = new Element({ class: 'right-toolbar-scale-filter' });
+        const panel = scaleFilter.dom as HTMLDivElement;
+        panel.style.display = 'flex';
+        panel.style.flexDirection = 'column';
+        panel.style.gap = '6px';
+        panel.style.padding = '6px 4px';
+
+        const title = document.createElement('div');
+        title.textContent = 'Scale Filter';
+        title.style.fontSize = '11px';
+        title.style.opacity = '0.85';
+        panel.appendChild(title);
+
+        const makeRow = (labelText: string, defaultValue: number) => {
+            const row = document.createElement('div');
+            row.style.display = 'flex';
+            row.style.flexDirection = 'column';
+            row.style.gap = '2px';
+
+            const label = document.createElement('div');
+            label.style.display = 'flex';
+            label.style.justifyContent = 'space-between';
+            label.style.fontSize = '11px';
+            label.style.opacity = '0.85';
+
+            const name = document.createElement('span');
+            name.textContent = labelText;
+
+            const value = document.createElement('span');
+            value.textContent = defaultValue.toFixed(2);
+
+            label.appendChild(name);
+            label.appendChild(value);
+
+            const input = document.createElement('input');
+            input.type = 'range';
+            input.min = '-12';
+            input.max = '2';
+            input.step = '0.01';
+            
+            input.value = String(defaultValue);
+
+            row.appendChild(label);
+            row.appendChild(input);
+
+            return { row, input, value };
+        };
+        const minRow = makeRow('Min Scale', -12.00);
+        const maxRow = makeRow('Max Scale', 2.00);
+        
+        panel.appendChild(minRow.row);
+        panel.appendChild(maxRow.row);
+
+        const emitScale = () => {
+            let minScale = parseFloat(minRow.input.value);
+            let maxScale = parseFloat(maxRow.input.value);
+
+            // keep min <= max
+            if (minScale > maxScale) {
+                maxScale = minScale;
+                maxRow.input.value = String(maxScale);
+                maxRow.value.textContent = maxScale.toFixed(2);
+            }
+
+            events.fire('filter.scale', { minScale, maxScale });
+        };
+
+        minRow.input.addEventListener('input', () => {
+            minRow.value.textContent = parseFloat(minRow.input.value).toFixed(2);
+            emitScale();
+        });
+
+        maxRow.input.addEventListener('input', () => {
+            maxRow.value.textContent = parseFloat(maxRow.input.value).toFixed(2);
+            emitScale();
+        });
+
+        this.append(scaleFilter);
+        this.append(new Element({ class: 'right-toolbar-separator' }));
 
         this.append(colorPanel);
         this.append(new Element({ class: 'right-toolbar-separator' }));

@@ -1,34 +1,24 @@
-import { Vec3 } from "playcanvas";
+import { Vec3, Mat4 } from "playcanvas"; // 👈 新增 Mat4 導入
 import { Events } from "../events";
 import { Scene } from "../scene";
 import { ElementType } from "../element";
+import { State } from "../splat-state"; // 👈 導入 State
 
 class MaskTo3DTool {
     events: Events;
     scene: Scene;
-    // 確保這裡的屬性已更新
     private maskList: { filename: string, img: HTMLImageElement }[] = [];
-    // private maskImage: HTMLImageElement | null = null; <-- 舊的應該被移除
-
+    private hasMask = false;
     constructor(events: Events, scene: Scene) {
         this.events = events;
         this.scene = scene;
     }
-    /**
- * Force Supersplat / PlayCanvas GSplat GPU resources to refresh after in-place edits
- * (e.g., opacityData mutations). Supersplat often caches splat attributes on GPU,
- * so mutating the typed array will not update the frame unless we trigger an upload / rebuild path.
- */
 
-
-    // 確保這個函式存在且名稱正確
-    setMasks(masks: { filename: string, img: HTMLImageElement }[]) {
+    setMasks(masks: { filename: string; img: HTMLImageElement }[]) {
         this.maskList = masks;
+        this.hasMask = masks.length > 0;
         console.log(`[MaskTo3D] Stored ${this.maskList.length} Mask(s) for processing.`);
     }
-
-    // 您可能還需要移除舊的 setMaskImage 函式，避免混淆
-    // setMaskImage(img: HTMLImageElement) { ... } <--- 應該被移除
 
     activate() {
         console.log("[MaskTo3D] Activated");
@@ -39,10 +29,13 @@ class MaskTo3DTool {
         console.log("[MaskTo3D] Deactivated");
     }
 
-    // --- src/mask-to-3d.ts 強化診斷後的 run() 函式 ---
-
     async run() {
+        if (!this.hasMask || this.maskList.length === 0) {
+            console.log("[MaskTo3D] No mask, skip apply.");
+            return;
+        }
 
+        console.group("[MaskTo3D] Apply mask");
         console.groupCollapsed("[MaskTo3D] 🚀 核心處理開始 (點擊展開看詳細步驟)");
         console.log("[MaskTo3D] 1. 檢查場景與 Mask 數據...");
 
@@ -64,31 +57,25 @@ class MaskTo3DTool {
         }
 
         const splat: any = splats[0];
-        // 🚨 關鍵診斷：印出 splat 物件及其 splatData 的結構 🚨
-        console.log("[MaskTo3D] 診斷: 輸出 splat 實例的完整結構，以便找到正確的更新 API。");
-        console.log("Splat 實例:", splat);
-        console.log("Splat Data:", splat.splatData);
-        // * 步驟 1: 數據準備：提升變數宣告到函數作用域頂部 *
+        // 修正 1A: 獲取 Splat 實體的世界變換矩陣，用於座標轉換
+        const worldMatrix = splat.entity.getWorldTransform();
+
         let xData: Float32Array | undefined;
         let yData: Float32Array | undefined;
         let zData: Float32Array | undefined;
-        let opacityData: Float32Array | undefined;
-        let properties: any; // <--- 提升 properties 的宣告
+        let stateData: Uint8Array | undefined; // 處理 State 數據
+        let properties: any;
 
         let attempt = 0;
         const maxAttempts = 50;
-        // 確保這裡的 properties 賦值到外部宣告的變數
         properties = splat.splatData?.elements?.[0]?.properties;
 
-        // 檢查 properties 至少有 4 個 (x, y, z, opacity)
         while ((!properties || properties.length < 4) && attempt < maxAttempts) {
             console.log(`[MaskTo3D] Waiting for properties to load... Attempt ${++attempt}`);
             await new Promise(resolve => setTimeout(resolve, 100));
-            // 在循環內重新檢查屬性，以防它們在等待期間被載入
             properties = splat.splatData?.elements?.[0]?.properties;
         }
 
-        // 確保這段邏輯是執行，並將數據賦值到外部變數
         if (properties) {
             const getStorageByName = (name: string) =>
                 properties.find((p: any) => p.name === name)?.storage;
@@ -96,20 +83,43 @@ class MaskTo3DTool {
             xData = getStorageByName('x');
             yData = getStorageByName('y');
             zData = getStorageByName('z');
-            opacityData = getStorageByName('opacity');
+            stateData = getStorageByName('state') as Uint8Array; // 獲取 State 數據
         }
 
-        if (!xData || !yData || !zData || !opacityData || xData.length === 0) {
-            console.error("[MaskTo3D] Aborting: Loaded splat has incomplete position/opacity data.");
+        if (!xData || !yData || !zData || !stateData || xData.length === 0) {
+            console.error("[MaskTo3D] Aborting: Loaded splat has incomplete position/state data.");
             console.groupEnd();
             return;
         }
 
-        // 由於我們不再使用 pts，我們可以直接使用 xData.length
         const numPoints = xData.length;
         console.log(`[MaskTo3D] 1.2 數據檢查成功。總共有 ${numPoints} 個 Gaussian 點。`);
 
-        // * 步驟 2: 優化 Mask 數據準備 (移動到循環之外) *
+        // ----------------------------------------------------
+        // 修正 2: 重置所有 Splat 的 deleted 狀態 (解決重複運行問題)
+        console.log("[MaskTo3D] 1.3 重置所有 Splat 的刪除標記...");
+        let resetCount = 0;
+        // 位元反轉：~State.deleted (4) 用於清除標記
+        const NOT_DELETED = ~State.deleted;
+
+        for (let i = 0; i < numPoints; i++) {
+            const oldState = stateData[i];
+            // 使用位元 AND 運算清除 State.deleted 標記
+            stateData[i] = oldState & NOT_DELETED;
+
+            if ((oldState & State.deleted) !== 0 && (stateData[i] & State.deleted) === 0) {
+                resetCount++;
+            }
+        }
+
+        if (resetCount > 0) {
+            // 如果有任何狀態被重置，則需要先更新一次畫面
+            splat.updateState(State.deleted);
+            console.log(`[MaskTo3D] 已重置 ${resetCount} 個 Splat 的刪除標記。`);
+        }
+        // ----------------------------------------------------
+
+        // * 步驟 2: 優化 Mask 數據準備 *
         const maskEntry = this.maskList[0];
         const maskImage = maskEntry.img;
 
@@ -131,7 +141,6 @@ class MaskTo3DTool {
         maskCtx.drawImage(maskImage, 0, 0);
 
         try {
-            // 圖像數據只讀取一次 (在 try 區塊內)
             const maskData = maskCtx.getImageData(0, 0, maskWidth, maskHeight).data;
 
             const rendererViewportWidth = this.scene.app.graphicsDevice.width;
@@ -147,23 +156,27 @@ class MaskTo3DTool {
 
             // * 步驟 3: 執行核心循環 *
             for (let i = 0; i < numPoints; i++) {
-                // 使用外部宣告的 xData/yData/zData 變數
+
+                // 1. 設定局部座標
                 worldPos.set(xData[i], yData[i], zData[i]);
+
+                // 修正 1B: 將局部座標轉換為世界座標，解決旋轉和移動問題
+                worldMatrix.transformPoint(worldPos, worldPos);
 
                 let isForegroundAcrossAllMasks = false;
 
                 // 投影到當前 PlayCanvas 相機
                 const p = this.projectToPixel(worldPos);
 
-                // **修正 Y 軸反轉：PlayCanvas 底部為 0，Canvas 頂部為 0**
-                const invertedY = rendererViewportHeight - p.y; // 關鍵修正
+                // 修正 Y 軸反轉
+                const invertedY = rendererViewportHeight - p.y;
 
                 // 座標轉換和採樣邏輯
                 const ratioX = maskWidth / rendererViewportWidth;
                 const ratioY = maskHeight / rendererViewportHeight;
 
                 const maskX = Math.floor(p.x * ratioX);
-                const maskY = Math.floor(invertedY * ratioY); // 使用反轉後的 Y 座標
+                const maskY = Math.floor(invertedY * ratioY);
 
                 const isVisible = p.depth > 0 && p.x >= 0 && p.x <= rendererViewportWidth && p.y >= 0 && p.y <= rendererViewportHeight;
 
@@ -179,48 +192,29 @@ class MaskTo3DTool {
 
                 const shouldDelete = !isForegroundAcrossAllMasks;
                 if (shouldDelete) {
-                    // **確保我們修改的是外部宣告的、引用底層緩衝區的 opacityData**
-                    // 註：opacityData 在這個作用域內是 Float32Array | undefined，請確保您在 if 外部做過檢查
-                    if (opacityData) {
-                        opacityData[i] = 0.0;
+                    // 修正 3: 不改 Opacity，改為加上 State.deleted 標記
+                    if (stateData) {
+                        // 使用位元 OR 運算符 '|' 加上 State.deleted 的值 (4)
+                        stateData[i] = stateData[i] | State.deleted;
                         deletedCount++;
                     }
                 }
 
-
                 if (i > 0 && i % 100000 === 0) {
                     console.log(`[MaskTo3D] 進度: ${i} / ${numPoints} 點已處理。`);
                 }
-
-
             }
-
-            // --- 替換 src/tools/mask-to-3d.ts 中的這段程式碼 ---
 
             console.log("[MaskTo3D] 4. 篩選完成，正在更新場景...");
             console.log(`[MaskTo3D] 總點數: ${numPoints} | 採樣到前景點數: ${foregroundSampleCount} | 標記刪除點數: ${deletedCount}`);
 
             // * 步驟 4: 通知渲染器數據已更新 *
-            // * 步驟 4: 通知渲染器數據已更新 *
-            // * 步驟 4: 通知渲染器數據已更新 *
-            // * 步驟 4: 通知渲染器數據已更新 *
             if (deletedCount > 0) {
-                 
-                // **這是最終且保證有效的方案：強制利用載入機制更新數據**
-                
-                // 1. 移除 Splat 實例，強制 PlayCanvas 清理渲染資源
-                splat.remove(); 
-                
-                // 2. 重新加入 Splat 實例，這將強制呼叫 splat.add() 內部的
-                //    this.updateState()，從而觸發紋理的 lock/unlock 周期，
-                //    將我們修改過的 opacityData 重新上傳到 GPU。
-                splat.add(); 
+                // 修正 3: 呼叫 SuperSplat 內建的 State 更新 API
+                splat.updateState(State.deleted);
 
-                // 3. 確保下一幀重繪
-                this.scene.forceRender = true;
-                
-                console.log("[MaskTo3D] ✅ 場景已更新：使用破壞式重載 (splat.remove()/splat.add()) 成功觸發更新。");
-           }
+                console.log("[MaskTo3D] ✅ 場景已更新：通過修改 State 屬性成功刪除點。");
+            }
             else {
                 console.warn("[MaskTo3D] ⚠️ 場景未更新：沒有點被標記為刪除。請檢查 Mask 顏色和投影邏輯。");
             }
@@ -228,6 +222,10 @@ class MaskTo3DTool {
 
         } catch (e) {
             console.error("[MaskTo3D] ❌ 致命錯誤：在圖像或循環處理中發生異常。", e);
+        } finally {
+            this.maskList = [];
+            this.hasMask = false;
+            console.log("[MaskTo3D] Mask cleared");
         }
 
         console.groupEnd();
@@ -244,23 +242,7 @@ class MaskTo3DTool {
             depth: screen.z ?? 0
         };
     }
-    /*
-     exportJSON(projected: any[]) {
-         const blob = new Blob(
-             [JSON.stringify(projected, null, 2)],
-             { type: "application/json" }
-         );
- 
-         const url = URL.createObjectURL(blob);
-         const a = document.createElement("a");
-         a.href = url;
-         a.download = "mask_to_3d.json";
-         a.click();
-         URL.revokeObjectURL(url);
-     }*/
-
-
-
+    // ... (其他非 run 的函式，如果它們不存在，這個替換塊中也不包含它們)
 }
 
 export { MaskTo3DTool }
