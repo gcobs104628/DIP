@@ -7,33 +7,50 @@ export class ScaleFilterTool {
     private events: Events;
     private scene: Scene;
 
-    // Baseline snapshot so slider changes are reversible (no cumulative deletion)
+    // Baseline snapshot so live updates are reversible
     private baselineState: Uint8Array | null = null;
+
+    // Current filter params
+    private minScale = -12;
+    private maxScale = 2;
+    private opacityThreshold = 0; // 0 means "no opacity filter"
 
     constructor(events: Events, scene: Scene) {
         this.events = events;
         this.scene = scene;
     }
 
-    /**
-     * Apply scale filter in log-scale domain.
-     * minScale/maxScale should match scale_0/1/2 range (typically negative values).
-     */
-    apply(minScale: number, maxScale: number) {
+    /** Called by main.ts on filter.scale */
+    applyScale(minScale: number, maxScale: number) {
+        this.minScale = minScale;
+        this.maxScale = maxScale;
+        this.applyAll();
+    }
+
+    /** Called by main.ts on filter.opacity */
+    applyOpacity(threshold: number) {
+        this.opacityThreshold = threshold;
+        this.applyAll();
+    }
+
+    /** Optional: reset baseline so next apply captures a fresh snapshot */
+    resetBaseline() {
+        this.baselineState = null;
+        // console.log('[Filters] Baseline reset.');
+    }
+
+    private applyAll() {
         const splats = this.scene.getElementsByType(ElementType.splat);
-        if (!splats || splats.length === 0) {
-            console.warn('[ScaleFilter] No splat found.');
-            return;
-        }
+        if (!splats || splats.length === 0) return;
 
         const splat: any = splats[0];
         const sd: any = splat.splatData;
         if (!sd || typeof sd.getProp !== 'function') {
-            console.error('[ScaleFilter] splat.splatData.getProp not available.');
+            console.error('[Filters] splat.splatData.getProp not available.');
             return;
         }
 
-        // In many Supersplat/PlayCanvas pipelines, scales are stored as log(scale)
+        // ---- Scale props (log-scale domain) ----
         const s0: Float32Array | undefined =
             sd.getProp('scale_0') ?? sd.getProp('scale0') ?? sd.getProp('sx');
         const s1: Float32Array | undefined =
@@ -42,61 +59,67 @@ export class ScaleFilterTool {
             sd.getProp('scale_2') ?? sd.getProp('scale2') ?? sd.getProp('sz');
 
         if (!s0 || !s1 || !s2) {
-            console.error('[ScaleFilter] Missing scale props (scale_0/1/2). Available keys:', Object.keys(sd));
+            console.error('[Filters] Missing scale props (scale_0/1/2).');
             return;
         }
 
-        // State prop may not exist initially; create it if needed
+        // ---- Opacity prop (could be linear [0,1] or logit) ----
+        const op: Float32Array | undefined =
+            sd.getProp('opacity') ??
+            sd.getProp('alpha') ??
+            sd.getProp('opac') ??
+            sd.getProp('opacity_0');
+
+        // ---- State (create if not present) ----
         let state: Uint8Array | undefined = sd.getProp('state');
         if (!state) {
             const n = sd.numSplats ?? splat.numSplats ?? s0.length;
             state = new Uint8Array(n);
-
-            if (typeof sd.addProp === 'function') {
-                sd.addProp('state', state);
-            } else {
-                // Fallback: store on object (less ideal, but prevents crash)
-                sd.state = state;
-            }
-
-            console.log('[ScaleFilter] Created state prop.');
+            if (typeof sd.addProp === 'function') sd.addProp('state', state);
+            else sd.state = state;
         }
 
         const n = sd.numSplats ?? state.length;
 
-        // Capture baseline once (baseline = "current state before scale filter")
+        // Capture baseline once
         if (!this.baselineState) {
-            this.baselineState = new Uint8Array(state); // copy
+            this.baselineState = new Uint8Array(state);
         }
 
-        // Restore baseline every time (makes slider reversible)
+        // Restore baseline every time (reversible)
         state.set(this.baselineState);
 
-        // Apply filter
-        for (let i = 0; i < n; i++) {
-            const sLog = Math.max(s0[i], s1[i], s2[i]);
-
-            if (sLog < minScale || sLog > maxScale) {
-                state[i] |= State.deleted;
-            }
+        // Heuristic: detect opacity domain
+        // If opacity values are not in [0,1], treat as logit and convert via sigmoid.
+        let opacityIsLogit = false;
+        if (op && op.length > 0) {
+            const v = op[0];
+            opacityIsLogit = (v < 0 || v > 1);
         }
 
-        // Push to renderer / GPU
+        const minS = this.minScale;
+        const maxS = this.maxScale;
+        const thr = this.opacityThreshold;
+
+        for (let i = 0; i < n; i++) {
+            // Scale filter (log domain)
+            const sLog = Math.max(s0[i], s1[i], s2[i]);
+            let del = (sLog < minS || sLog > maxS);
+
+            // Opacity filter (optional)
+            if (!del && thr > 0 && op) {
+                const raw = op[i];
+                const a = opacityIsLogit ? (1 / (1 + Math.exp(-raw))) : raw;
+                if (a < thr) del = true;
+            }
+
+            if (del) state[i] |= State.deleted;
+        }
+
         if (typeof splat.updateState === 'function') {
             splat.updateState(State.deleted);
         } else if (typeof splat.rebuildMaterial === 'function') {
             splat.rebuildMaterial();
-        } else {
-            console.warn('[ScaleFilter] No updateState()/rebuildMaterial() found. Filter may not visually update.');
         }
-    }
-
-    /**
-     * Reset baseline so next apply() captures a fresh snapshot.
-     * Call this when you want "current state" to become the new baseline.
-     */
-    resetBaseline() {
-        this.baselineState = null;
-        console.log('[ScaleFilter] Baseline reset.');
     }
 }

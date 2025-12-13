@@ -24,7 +24,7 @@ import { VideoSettingsDialog } from './video-settings-dialog';
 import { ViewCube } from './view-cube';
 import { ViewPanel } from './view-panel';
 import { version } from '../../package.json';
-
+import { EmbeddedFiltersPanel } from './embedded-filters-panel';
 // ts compiler and vscode find this type, but eslint does not
 type FilePickerAcceptType = unknown;
 
@@ -125,7 +125,8 @@ class EditorUI {
         const rightToolbar = new RightToolbar(events, tooltips);
         const modeToggle = new ModeToggle(events, tooltips);
         const menu = new Menu(events);
-
+        const embeddedFiltersPanel = new EmbeddedFiltersPanel(events, tooltips);
+        canvasContainer.append(embeddedFiltersPanel);
         canvasContainer.dom.appendChild(canvas);
         canvasContainer.append(appLabel);
         canvasContainer.append(cursorLabel);

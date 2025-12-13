@@ -277,9 +277,11 @@ const main = async () => {
     });
 
     // 監聽右側滑桿事件（right-toolbar.ts fire 的那個）
-    events.on('filter.scale', ({ minScale, maxScale }) => {
-        console.log('[main] filter.scale', minScale, maxScale);
-        scaleFilterTool.apply(minScale, maxScale);
+    events.on('filter.scale', ({ minScale, maxScale }: { minScale: number; maxScale: number }) => {
+        scaleFilterTool.applyScale(minScale, maxScale);
+    });
+    events.on('filter.opacity', ({ threshold }: { threshold: number }) => {
+        scaleFilterTool.applyOpacity(threshold);
     });
 
 

@@ -164,84 +164,32 @@ class RightToolbar extends Container {
         // ------------------------------
         this.append(new Element({ class: 'right-toolbar-separator' }));
 
-        const scaleFilter = new Element({ class: 'right-toolbar-scale-filter' });
-        const panel = scaleFilter.dom as HTMLDivElement;
-        panel.style.display = 'flex';
-        panel.style.flexDirection = 'column';
-        panel.style.gap = '6px';
-        panel.style.padding = '6px 4px';
-
-        const title = document.createElement('div');
-        title.textContent = 'Scale Filter';
-        title.style.fontSize = '11px';
-        title.style.opacity = '0.85';
-        panel.appendChild(title);
-
-        const makeRow = (labelText: string, defaultValue: number) => {
-            const row = document.createElement('div');
-            row.style.display = 'flex';
-            row.style.flexDirection = 'column';
-            row.style.gap = '2px';
-
-            const label = document.createElement('div');
-            label.style.display = 'flex';
-            label.style.justifyContent = 'space-between';
-            label.style.fontSize = '11px';
-            label.style.opacity = '0.85';
-
-            const name = document.createElement('span');
-            name.textContent = labelText;
-
-            const value = document.createElement('span');
-            value.textContent = defaultValue.toFixed(2);
-
-            label.appendChild(name);
-            label.appendChild(value);
-
-            const input = document.createElement('input');
-            input.type = 'range';
-            input.min = '-12';
-            input.max = '2';
-            input.step = '0.01';
-            
-            input.value = String(defaultValue);
-
-            row.appendChild(label);
-            row.appendChild(input);
-
-            return { row, input, value };
-        };
-        const minRow = makeRow('Min Scale', -12.00);
-        const maxRow = makeRow('Max Scale', 2.00);
+        const embeddedFilters = new Button({
+            id: 'right-toolbar-embedded-filters',
+            class: 'right-toolbar-toggle'
+        });
         
-        panel.appendChild(minRow.row);
-        panel.appendChild(maxRow.row);
-
-        const emitScale = () => {
-            let minScale = parseFloat(minRow.input.value);
-            let maxScale = parseFloat(maxRow.input.value);
-
-            // keep min <= max
-            if (minScale > maxScale) {
-                maxScale = minScale;
-                maxRow.input.value = String(maxScale);
-                maxRow.value.textContent = maxScale.toFixed(2);
-            }
-
-            events.fire('filter.scale', { minScale, maxScale });
-        };
-
-        minRow.input.addEventListener('input', () => {
-            minRow.value.textContent = parseFloat(minRow.input.value).toFixed(2);
-            emitScale();
+        // 沒有現成 svg 的話，先用文字頂著（你之後再換成 svg）
+        embeddedFilters.dom.textContent = 'Fx';
+        
+        this.append(embeddedFilters);
+        this.append(new Element({ class: 'right-toolbar-separator' }));
+        
+        tooltips.register(embeddedFilters, 'Embedded Filters', 'left');
+        
+        embeddedFilters.on('click', () => {
+            // 開關 panel
+            events.fire('filtersPanel.toggleVisible');
+        
+            // 可選：打開 filters 時把 colors/view 關掉（不想互斥就刪掉）
+            events.fire('colorPanel.setVisible', false);
+            events.fire('viewPanel.setVisible', false);
         });
-
-        maxRow.input.addEventListener('input', () => {
-            maxRow.value.textContent = parseFloat(maxRow.input.value).toFixed(2);
-            emitScale();
+        
+        events.on('filtersPanel.visible', (visible: boolean) => {
+            embeddedFilters.class[visible ? 'add' : 'remove']('active');
         });
-
-        this.append(scaleFilter);
+        
         this.append(new Element({ class: 'right-toolbar-separator' }));
 
         this.append(colorPanel);
