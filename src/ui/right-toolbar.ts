@@ -1,4 +1,4 @@
-import { Button, Container, Element, Label } from '@playcanvas/pcui';
+import { Button, Container, Element } from '@playcanvas/pcui';
 
 import { Events } from '../events';
 import { localize } from './localization';
@@ -75,6 +75,91 @@ class RightToolbar extends Container {
         this.append(new Element({ class: 'right-toolbar-separator' }));
         this.append(cameraFrameSelection);
         this.append(cameraReset);
+
+        /*
+        --------------------------------------------------------
+        新增：Import Mask 按鈕
+        --------------------------------------------------------
+        */
+        const importMaskBtn = new Button({
+            id: 'right-toolbar-import-mask',
+            class: 'right-toolbar-button'
+        });
+        importMaskBtn.dom.appendChild(createSvg(showHideSplatsSvg)); // 請確保這裡使用的 SVG 變數是有效的
+        this.append(importMaskBtn); // * 關鍵點 A: 確保按鈕被附加到工具列 *
+        tooltips.register(importMaskBtn, "Import Mask (PNG)", "left");
+
+        importMaskBtn.on('click', () => {
+            console.log("[UI-DEBUG] 1. Import Mask clicked: Starting process.");
+
+            // 檢查點 C: 檔案對話框建立
+            const input = document.createElement("input");
+            input.type = "file";
+            input.accept = "image/png";
+            input.multiple = true; // <--- 關鍵：允許選擇多個檔案
+            console.log("[UI-DEBUG] 2. Input element created.");
+
+            input.onchange = async () => {
+                const files = Array.from(input.files || []); // 獲取所有選擇的檔案
+                if (files.length === 0) {
+                    console.log("[UI] Import Mask: No file selected.");
+                    return;
+                }
+
+                console.log(`[UI] Import Mask: ${files.length} file(s) selected. Processing...`);
+
+                const loadedMasks = [];
+
+                for (const file of files) {
+                    // 這裡的邏輯與單一檔案相同，但我們要將結果收集起來
+                    const img = new Image();
+                    img.src = URL.createObjectURL(file);
+
+                    try {
+                        await img.decode();
+                        loadedMasks.push({
+                            filename: file.name,
+                            img: img
+                        });
+                        // 🌟 新增延遲以緩解瀏覽器資源壓力
+                        await new Promise(resolve => setTimeout(resolve, 50)); // 延遲 50ms
+                        // ...
+                    } catch (e) {
+                        console.error(`[UI] Mask Data: Failed to decode image ${file.name}.`, e);
+                    } finally {
+                        URL.revokeObjectURL(img.src);
+                    }
+                }
+
+                if (loadedMasks.length > 0) {
+                    events.fire("mask.import", loadedMasks); // <--- 核心：發射所有載入的 Mask
+                    console.log(`[UI] Mask Data: Fired 'mask.import' event with ${loadedMasks.length} masks.`);
+                }
+            };
+
+            // 檢查點 D: 檔案對話框彈出
+            input.click();
+            console.log("[UI-DEBUG] 3. Attempted to trigger file dialog.");
+        });
+
+        /*
+        --------------------------------------------------------
+        新增：Mask → 3D 按鈕 (已新增詳細 console log)
+        --------------------------------------------------------
+        */
+        const maskTo3DButton = new Button({
+            id: 'right-toolbar-mask-to-3d',
+            class: 'right-toolbar-button'
+        });
+        maskTo3DButton.dom.appendChild(createSvg(ringsSvg));
+        this.append(maskTo3DButton);
+
+        tooltips.register(maskTo3DButton, "Mask → 3D Projection", "left");
+        maskTo3DButton.on('click', () => {
+            console.log("[UI] Mask-to-3D Clicked: Firing 'tool.maskTo3D' event.");
+            events.fire("tool.maskTo3D");
+        });
+
         this.append(colorPanel);
         this.append(new Element({ class: 'right-toolbar-separator' }));
         this.append(options);
@@ -85,8 +170,6 @@ class RightToolbar extends Container {
         tooltips.register(cameraReset, localize('tooltip.right-toolbar.reset-camera'), 'left');
         tooltips.register(colorPanel, localize('tooltip.right-toolbar.colors'), 'left');
         tooltips.register(options, localize('tooltip.right-toolbar.view-options'), 'left');
-
-        // add event handlers
 
         ringsModeToggle.on('click', () => {
             events.fire('camera.toggleMode');

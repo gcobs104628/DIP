@@ -31,7 +31,7 @@ import { ToolManager } from './tools/tool-manager';
 import { registerTransformHandlerEvents } from './transform-handler';
 import { EditorUI } from './ui/editor';
 import { localizeInit } from './ui/localization';
-
+import { MaskTo3DTool } from './tools/mask-to-3d'; // 新增的 MaskTo3DTool
 declare global {
     interface LaunchParams {
         readonly files: FileSystemFileHandle[];
@@ -199,7 +199,16 @@ const main = async () => {
     });
 
     events.on('bgClr', (clr: Color) => {
-        const cnv = (v: number) => `${Math.max(0, Math.min(255, (v * 255))).toFixed(0)}`;
+        // 原本錯誤：
+        // const cnv = (v: number) => ${Math.max(0, Math.min(255, (v * 255))).toFixed(0)};
+
+        // 修正為：確保它回傳一個字串
+        const cnv = (v: number) =>
+            Math.max(0, Math.min(255, (v * 255))).toFixed(0);
+        // 原本錯誤：
+        // document.body.style.backgroundColor = rgba(${cnv(clr.r)},${cnv(clr.g)},${cnv(clr.b)},1);
+
+        // 修正為：使用反引號 (`) 來構造 CSS 顏色字串
         document.body.style.backgroundColor = `rgba(${cnv(clr.r)},${cnv(clr.g)},${cnv(clr.b)},1)`;
     });
     events.on('selectedClr', (clr: Color) => {
@@ -246,9 +255,26 @@ const main = async () => {
     toolManager.register('rotate', new RotateTool(events, scene));
     toolManager.register('scale', new ScaleTool(events, scene));
     toolManager.register('measure', new MeasureTool(events, scene, editorUI.toolsContainer.dom, editorUI.canvasContainer));
+    // 註冊 MaskTo3DTool
+    // 實例化 MaskTo3DTool
+    const maskTo3DTool = new MaskTo3DTool(events, scene);
+
+    // 監聽 Mask 導入事件，現在它傳遞的是一個 Mask 陣列 (來自 right-toolbar.ts 的修改)
+    events.on('mask.import', (masks: { filename: string, img: HTMLImageElement }[]) => {
+        console.log(`[main.ts] Received 'mask.import' event. Storing ${masks.length} images.`);
+        // ** 使用新的 setMasks 函式 **
+        maskTo3DTool.setMasks(masks);
+    });
+
+    // 監聽 Mask-to-3D 執行事件 (這個應該已經存在且正確)
+    events.on("tool.maskTo3D", () => {
+        maskTo3DTool.activate();
+    });
 
     editorUI.toolsContainer.dom.appendChild(maskCanvas);
-
+    // * 新增：監聽 'mask.import' 事件並儲存 Mask 資料到 Tool 中 *
+    
+    // * 結束新增 *
     window.scene = scene;
 
     registerEditorEvents(events, editHistory, scene);
