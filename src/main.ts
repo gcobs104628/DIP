@@ -34,6 +34,8 @@ import { localizeInit } from './ui/localization';
 import { MaskTo3DTool } from './tools/mask-to-3d'; // 新增的 MaskTo3DTool
 import { ScaleFilterTool } from './tools/scale-filter'; // 路徑依你放的位置調整
 import { KnnOutlierFilterTool } from './tools/knn-outlier-filter';
+import { CompareView } from './compare-view';
+
 
 
 
@@ -150,6 +152,24 @@ const main = async () => {
         editorUI.canvas,
         graphicsDevice
     );
+
+    const mainCamEntity =
+        (scene as any).cameraEntity ??
+        (scene as any).camera?.entity ??
+        (scene as any).app?.root?.findByName('Camera') ??
+        (scene as any).app?.root?.findByName('camera');
+
+    if (!mainCamEntity) {
+        console.warn('[CompareView] Cannot find main camera entity on scene.');
+    } else {
+        // ✅ 第三個參數要傳 mainCamEntity
+        const compareView = new CompareView(events, scene, mainCamEntity);
+
+        // ✅ UI 端 fire 'compareView.toggleEnabled' / 'compareView.setEnabled' 就會進來
+        
+    }
+
+
 
     // colors
     const bgClr = new Color();
@@ -292,7 +312,7 @@ const main = async () => {
     events.on('filter.knnOutlier', ({ k, threshold }: { k: number; threshold: number }) => {
         void knnOutlierTool.apply(k, threshold);
     });
-    
+
     events.on('filter.knnOutlier.reset', () => {
         knnOutlierTool.reset();
     });

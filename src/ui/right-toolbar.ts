@@ -168,33 +168,57 @@ class RightToolbar extends Container {
             id: 'right-toolbar-embedded-filters',
             class: 'right-toolbar-toggle'
         });
-        
+
         // 沒有現成 svg 的話，先用文字頂著（你之後再換成 svg）
         embeddedFilters.dom.textContent = 'Fx';
-        
+
         this.append(embeddedFilters);
         this.append(new Element({ class: 'right-toolbar-separator' }));
-        
+
         tooltips.register(embeddedFilters, 'Embedded Filters', 'left');
-        
+
         embeddedFilters.on('click', () => {
             // 開關 panel
             events.fire('filtersPanel.toggleVisible');
-        
+
             // 可選：打開 filters 時把 colors/view 關掉（不想互斥就刪掉）
             events.fire('colorPanel.setVisible', false);
             events.fire('viewPanel.setVisible', false);
         });
-        
+
         events.on('filtersPanel.visible', (visible: boolean) => {
             embeddedFilters.class[visible ? 'add' : 'remove']('active');
         });
-        
+
         this.append(new Element({ class: 'right-toolbar-separator' }));
 
         this.append(colorPanel);
         this.append(new Element({ class: 'right-toolbar-separator' }));
         this.append(options);
+        // right-toolbar.ts (inside constructor)
+
+        // Compare button
+        const compareBtn = new Button({
+            id: 'right-toolbar-compare',
+            class: 'right-toolbar-toggle'
+        });
+        compareBtn.dom.textContent = 'Cmp';
+
+        this.append(compareBtn);
+        tooltips.register(compareBtn, 'Compare Before/After', 'left');
+
+        compareBtn.on('click', () => {
+            console.log('[UI] Cmp clicked -> fire compareView.toggleEnabled');
+            events.fire('compareView.toggleEnabled');
+
+        });
+
+        // Optional: reflect active state (requires CompareView to fire compareView.enabled)
+        events.on('compareView.enabledChanged', (enabled: boolean) => {
+            compareBtn.class[enabled ? 'add' : 'remove']('active');
+        });
+
+
 
         tooltips.register(ringsModeToggle, localize('tooltip.right-toolbar.splat-mode'), 'left');
         tooltips.register(showHideSplats, localize('tooltip.right-toolbar.show-hide'), 'left');
