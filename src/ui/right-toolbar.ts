@@ -107,7 +107,7 @@ class RightToolbar extends Container {
 
                 console.log(`[UI] Import Mask: ${files.length} file(s) selected. Processing...`);
 
-                const loadedMasks: Array<{ filename: string; img: HTMLImageElement }> = [];
+                const loadedMasks = [];
 
                 for (const file of files) {
                     const img = new Image();
@@ -133,7 +133,27 @@ class RightToolbar extends Container {
             input.click();
             console.log('[UI-DEBUG] 3. Attempted to trigger file dialog.');
         });
+/*
+        --------------------------------------------------------
+        新增：Import Camera 按鈕
+        --------------------------------------------------------
+        */
+        const importCameraBtn = new Button({ id: 'import-camera-json', class: 'right-toolbar-button' });
+        importCameraBtn.dom.textContent = 'JSON';
+        this.append(importCameraBtn);
 
+        importCameraBtn.on('click', () => {
+            const input = document.createElement("input");
+            input.type = "file";
+            input.accept = ".json";
+            input.onchange = async () => {
+                const file = input.files[0];
+                const text = await file.text();
+                const poses = JSON.parse(text);
+                events.fire("cameraPoses.import", poses); // 通知 main.ts 轉交給工具
+            };
+            input.click();
+        });
         /*
         --------------------------------------------------------
         新增：Mask → 3D 按鈕
@@ -219,6 +239,32 @@ class RightToolbar extends Container {
             compareBtn.class[enabled ? 'add' : 'remove']('active');
             refreshSnapshotBtn.disabled = !enabled;
         });
+        // Diff button (toggle)
+        const diffBtn = new Button({
+            id: 'right-toolbar-compare-diff',
+            class: 'right-toolbar-toggle'
+        });
+        diffBtn.dom.textContent = 'Diff';
+        (diffBtn.dom as HTMLButtonElement).disabled = true; // only enabled when compare view is on
+        this.append(diffBtn);
+
+        tooltips.register(diffBtn, 'Show splats that differ between left/right', 'left');
+
+        diffBtn.on('click', () => {
+            events.fire('compareView.toggleDiff');
+        });
+
+        // enable/disable based on compare view
+        events.on('compareView.enabledChanged', (enabled: boolean) => {
+            (diffBtn.dom as HTMLButtonElement).disabled = !enabled;
+            if (!enabled) diffBtn.class.remove('active');
+        });
+
+        // show active state based on diff mode
+        events.on('compareView.diffEnabledChanged', (enabled: boolean) => {
+            diffBtn.class[enabled ? 'add' : 'remove']('active');
+        });
+
 
         // ------------------------------
         // Existing toolbar tooltips + bindings

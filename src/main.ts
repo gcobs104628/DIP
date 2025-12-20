@@ -295,9 +295,14 @@ const main = async () => {
     });
 
     // 監聽 Mask-to-3D 執行事件 (這個應該已經存在且正確)
-    events.on("tool.maskTo3D", () => {
-        maskTo3DTool.activate();
+    events.on('tool.maskTo3D', () => {
+        if (typeof maskTo3DTool.activate === 'function') {
+            maskTo3DTool.activate(); 
+        } else {
+            console.error("[main.ts] 錯誤：maskTo3DTool 缺少 activate 方法");
+        }
     });
+
 
     // 監聽右側滑桿事件（right-toolbar.ts fire 的那個）
     events.on('filter.scale', ({ minScale, maxScale }: { minScale: number; maxScale: number }) => {
@@ -331,6 +336,11 @@ const main = async () => {
 
     editorUI.toolsContainer.dom.appendChild(maskCanvas);
     // * 新增：監聽 'mask.import' 事件並儲存 Mask 資料到 Tool 中 *
+    // --- 新增：處理 Camera JSON 匯入的事件監聽 ---
+    events.on('cameraPoses.import', (poses: any[]) => {
+        maskTo3DTool.setCameraPoses(poses);
+        console.log("[main.ts] 相機參數已成功傳遞至 MaskTo3D 工具");
+    });
 
     // * 結束新增 *
     window.scene = scene;
