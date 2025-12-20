@@ -166,7 +166,7 @@ const main = async () => {
         const compareView = new CompareView(events, scene, mainCamEntity);
 
         // ✅ UI 端 fire 'compareView.toggleEnabled' / 'compareView.setEnabled' 就會進來
-        
+
     }
 
 
@@ -306,6 +306,18 @@ const main = async () => {
     events.on('filter.opacity', ({ threshold }: { threshold: number }) => {
         scaleFilterTool.applyOpacity(threshold);
     });
+    // --- NEW: group slider drags into a single undo ---
+    events.on('filter.scale.begin', () => scaleFilterTool.begin('scale'));
+    events.on('filter.scale.preview', ({ minScale, maxScale }: { minScale: number; maxScale: number }) => {
+        scaleFilterTool.previewScale(minScale, maxScale);
+    });
+    events.on('filter.scale.commit', () => scaleFilterTool.commit('scale'));
+
+    events.on('filter.opacity.begin', () => scaleFilterTool.begin('opacity'));
+    events.on('filter.opacity.preview', ({ threshold }: { threshold: number }) => {
+        scaleFilterTool.previewOpacity(threshold);
+    });
+    events.on('filter.opacity.commit', () => scaleFilterTool.commit('opacity'));
 
     const knnOutlierTool = new KnnOutlierFilterTool(events, scene);
 

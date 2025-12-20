@@ -2,8 +2,6 @@ import { Container, Label, SliderInput } from '@playcanvas/pcui';
 import { Events } from '../events';
 import { Tooltips } from './tooltips';
 
-// pcui SliderInput 沒有 slide start/end，但我們這裡其實只用 change 也行。
-// 先保留跟 color-panel.ts 一樣的寫法，未來你要做 undo/redo grouping 會比較方便。
 class MyFancySliderInput extends SliderInput {
     _onSlideStart(pageX: number) {
         // @ts-ignore
@@ -28,23 +26,18 @@ class EmbeddedFiltersPanel extends Container {
         };
         super(args);
 
-        // stop pointer events bubbling (跟 ColorPanel 一樣，避免你在拖拉時相機也被拖到)
         ['pointerdown', 'pointerup', 'pointermove', 'wheel', 'dblclick'].forEach((eventName) => {
             this.dom.addEventListener(eventName, (event: Event) => event.stopPropagation());
         });
 
-        // 如果你的 CSS 沒有針對 #embedded-filters-panel 定位，
-        // 這裡先用 inline style 讓它出現在右側工具列旁（你覺得不對再調）
         (this.dom as HTMLElement).style.position = 'absolute';
         (this.dom as HTMLElement).style.right = '56px';
         (this.dom as HTMLElement).style.top = '120px';
 
-        // header
         const header = new Container({ class: 'panel-header' });
 
         const icon = new Label({
             class: 'panel-header-icon',
-            // 這個字元只是佔位，想換成更像「濾鏡」的 icon 之後再換
             text: '\uE19E'
         });
 
@@ -55,6 +48,11 @@ class EmbeddedFiltersPanel extends Container {
 
         header.append(icon);
         header.append(label);
+
+        // UI suppress flag to avoid feedback loops when Undo/Redo updates sliders
+        let suppress = false;
+        let scaleSliding = false;
+        let opacitySliding = false;
 
         // ------- Scale (min/max) -------
         const scaleMinRow = new Container({ class: 'color-panel-row' });
@@ -82,25 +80,52 @@ class EmbeddedFiltersPanel extends Container {
         scaleMaxRow.append(scaleMaxSlider);
 
         const emitScale = () => {
+            if (suppress) return;
+
             let minScale = scaleMinSlider.value;
             let maxScale = scaleMaxSlider.value;
 
             if (minScale > maxScale) {
+                suppress = true;
+                scaleMaxSlider.value = minScale;
+                suppress = false;
                 maxScale = minScale;
-                scaleMaxSlider.value = maxScale;
             }
 
-            events.fire('filter.scale', { minScale, maxScale });
+            if (scaleSliding) {
+                events.fire('filter.scale.preview', { minScale, maxScale });
+            } else {
+                // non-drag change (e.g., click or keyboard) -> commit immediately (1 undo)
+                events.fire('filter.scale', { minScale, maxScale });
+            }
         };
+
 
         scaleMinSlider.on('change', emitScale);
         scaleMaxSlider.on('change', emitScale);
+        // NEW: group one drag into a single undo
+        const onScaleStart = () => {
+            if (suppress) return;
+            scaleSliding = true;
+            events.fire('filter.scale.begin');
+        };
+
+        const onScaleEnd = () => {
+            if (suppress) return;
+            scaleSliding = false;
+            events.fire('filter.scale.commit');
+        };
+
+        // Hook start/end on both sliders
+        (scaleMinSlider as any).on('slide:start', onScaleStart);
+        (scaleMaxSlider as any).on('slide:start', onScaleStart);
+        (scaleMinSlider as any).on('slide:end', onScaleEnd);
+        (scaleMaxSlider as any).on('slide:end', onScaleEnd);
 
         // ------- Opacity Threshold -------
         const opacityRow = new Container({ class: 'color-panel-row' });
         const opacityLabel = new Label({ class: 'color-panel-row-label', text: 'Opacity Threshold' });
 
-        // 這裡先用 0~1。若你實際的 opacity 是別的範圍（例如 log 或 0~255），再改 slider 範圍即可。
         const opacitySlider = new MyFancySliderInput({
             class: 'color-panel-row-slider',
             min: 0,
@@ -109,16 +134,37 @@ class EmbeddedFiltersPanel extends Container {
             value: 0
         });
 
-
         opacityRow.append(opacityLabel);
         opacityRow.append(opacitySlider);
 
         const emitOpacity = () => {
+            if (suppress) return;
             const threshold = opacitySlider.value;
-            events.fire('filter.opacity', { threshold });
+        
+            if (opacitySliding) {
+                events.fire('filter.opacity.preview', { threshold });
+            } else {
+                events.fire('filter.opacity', { threshold });
+            }
         };
+        
 
         opacitySlider.on('change', emitOpacity);
+        const onOpacityStart = () => {
+            if (suppress) return;
+            opacitySliding = true;
+            events.fire('filter.opacity.begin');
+        };
+        
+        const onOpacityEnd = () => {
+            if (suppress) return;
+            opacitySliding = false;
+            events.fire('filter.opacity.commit');
+        };
+        
+        (opacitySlider as any).on('slide:start', onOpacityStart);
+        (opacitySlider as any).on('slide:end', onOpacityEnd);
+        
         // ------- Outliers (KNN / Distance) -------
         const knnKRow = new Container({ class: 'color-panel-row' });
         const knnKLabel = new Label({ class: 'color-panel-row-label', text: 'KNN k' });
@@ -144,7 +190,6 @@ class EmbeddedFiltersPanel extends Container {
         knnTRow.append(knnTLabel);
         knnTRow.append(knnTSlider);
 
-        // Run button (button-run, not live)
         const runKnn = new Label({
             class: 'panel-header-button',
             text: 'Run'
@@ -162,24 +207,24 @@ class EmbeddedFiltersPanel extends Container {
 
         const reset = new Label({
             class: 'panel-header-button',
-            text: '\uE304' // 跟 ColorPanel 一樣的 reset icon
+            text: '\uE304'
         });
 
         controlRow.append(new Label({ class: 'panel-header-spacer' }));
         controlRow.append(reset);
-
         controlRow.append(runKnn);
-
         controlRow.append(new Label({ class: 'panel-header-spacer' }));
 
         reset.on('click', () => {
+            suppress = true;
             scaleMinSlider.value = -12;
             scaleMaxSlider.value = 2;
             opacitySlider.value = 0;
             knnKSlider.value = 8;
             knnTSlider.value = 0.05;
-            events.fire('filter.knnOutlier.reset');
+            suppress = false;
 
+            events.fire('filter.knnOutlier.reset');
             events.fire('filter.scale', { minScale: -12, maxScale: 2 });
             events.fire('filter.opacity', { threshold: 0 });
         });
@@ -193,11 +238,26 @@ class EmbeddedFiltersPanel extends Container {
         this.append(opacityRow);
         this.append(knnKRow);
         this.append(knnTRow);
-
         this.append(new Label({ class: 'panel-header-spacer' }));
         this.append(controlRow);
 
-        // ------- visibility (照 ColorPanel 寫法) -------
+        // ------- UI sync from Undo/Redo -------
+        events.on('filter.scale.uiSet', (p: { minScale: number; maxScale: number; threshold: number }) => {
+            suppress = true;
+            scaleMinSlider.value = p.minScale;
+            scaleMaxSlider.value = p.maxScale;
+            opacitySlider.value = p.threshold;
+            suppress = false;
+        });
+
+        events.on('filter.knnOutlier.uiSet', (p: { k: number; threshold: number }) => {
+            suppress = true;
+            knnKSlider.value = p.k;
+            knnTSlider.value = p.threshold;
+            suppress = false;
+        });
+
+        // ------- visibility -------
         const setVisible = (visible: boolean) => {
             if (visible === this.hidden) {
                 this.hidden = !visible;
@@ -210,7 +270,6 @@ class EmbeddedFiltersPanel extends Container {
         events.on('filtersPanel.setVisible', (visible: boolean) => setVisible(visible));
         events.on('filtersPanel.toggleVisible', () => setVisible(this.hidden));
 
-        // 互斥：打開 view 或 colors，就把 filters 關掉
         events.on('viewPanel.visible', (visible: boolean) => {
             if (visible) setVisible(false);
         });

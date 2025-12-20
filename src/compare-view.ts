@@ -31,26 +31,27 @@ export class CompareView {
         layers: number[];
     } = null;
 
+
     constructor(events: Events, scene: Scene, mainCamEntity: Entity) {
         this.events = events;
         this.scene = scene;
         this.mainCamEntity = mainCamEntity;
 
-        // expose getters for UI
         this.events.function('compareView.enabled', () => this.enabled);
         this.events.function('compareView.split', () => this.split);
 
-        // UI control events
+        this.events.on('compareView.setEnabled', (v: boolean) => this.setEnabled(v));
         this.events.on('compareView.toggleEnabled', () => this.setEnabled(!this.enabled));
-        this.events.on('compareView.setEnabled', (v: any) => this.setEnabled(!!v));
-        this.events.on('compareView.setSplit', (v: any) => {
-            const nv = Math.max(0.05, Math.min(0.95, Number(v)));
-            this.split = isFinite(nv) ? nv : 0.5;
-            if (this.enabled) this.applyLayout();
+
+        this.events.on('compareView.setSplit', (v: number) => {
+            this.split = Math.max(0.1, Math.min(0.9, v));
+            this.applyLayout();
             this.events.fire('compareView.splitChanged', this.split);
         });
 
-        // render hook
+        // NEW: refresh left snapshot to current right state
+        this.events.on('compareView.refreshSnapshot', () => this.refreshSnapshot());
+
         this.events.on('prerender', () => {
             if (!this.enabled) return;
             this.ensureLeftCamera();
@@ -70,6 +71,39 @@ export class CompareView {
     private getFirstSplat(): Splat | null {
         const arr = this.scene.getElementsByType(ElementType.splat) as any[];
         return (arr && arr.length > 0 ? (arr[0] as Splat) : null);
+    }
+    private refreshSnapshot() {
+        if (!this.enabled) return;
+
+        const splat = this.scene.getElementsByType(ElementType.splat)[0] as Splat;
+        if (!splat) return;
+        if (!this.clonedSplatEntity || !this.clonedStateTexture) return;
+
+        // Read current state from the live (right) splat
+        const sd: any = splat.splatData;
+        const currentState = (sd.getProp ? sd.getProp('state') : sd.state) as Uint8Array;
+        if (!currentState) return;
+
+        // Deep copy + overwrite left snapshot texture
+        const snap = new Uint8Array(currentState);
+        const dst = this.clonedStateTexture.lock();
+        dst.set(snap);
+        this.clonedStateTexture.unlock();
+
+        // Also freeze the current visual params into the left material at refresh time
+        const clonedInstance = (this.clonedSplatEntity as any)?.gsplat?.instance;
+        const mat =
+            clonedInstance?.material ??
+            clonedInstance?.meshInstance?.material ??
+            null;
+
+        if (mat) {
+            this.applyParamsToMaterial(mat, splat);
+            if (mat.update) mat.update();
+        }
+
+        // Optional: let UI know snapshot was refreshed
+        this.events.fire('compareView.snapshotRefreshed');
     }
 
     private ensureLeftLayer() {
