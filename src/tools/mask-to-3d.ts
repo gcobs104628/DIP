@@ -6,7 +6,7 @@ import { State } from "../splat-state";
 
 interface CameraPose {
     file_path: string;
-    rotation: [number, number, number, number]; 
+    rotation: [number, number, number, number];
     translation: [number, number, number];
     intrinsics: { width: number, height: number, params: number[] };
 }
@@ -64,21 +64,50 @@ class MaskTo3DTool {
 
         const splat: any = splats[0];
 
-        type SplatProperty = { name: string; storage: unknown };
-        const properties = splat.splatData.elements[0].properties as SplatProperty[];
-        
-        const x = properties.find((p: SplatProperty) => p.name === 'x')!.storage as Float32Array;
-        const y = properties.find((p: SplatProperty) => p.name === 'y')!.storage as Float32Array;
-        const z = properties.find((p: SplatProperty) => p.name === 'z')!.storage as Float32Array;
-        const state = properties.find((p: SplatProperty) => p.name === 'state')!.storage as Uint8Array;
-        
+        const sd: any = splat.splatData;
+
+        const getStorageByName = (name: string) =>
+            sd?.elements?.[0]?.properties?.find((p: any) => p.name === name)?.storage;
+
+        const x: Float32Array | undefined = (sd?.getProp?.('x') as Float32Array) ?? (getStorageByName('x') as Float32Array);
+        const y: Float32Array | undefined = (sd?.getProp?.('y') as Float32Array) ?? (getStorageByName('y') as Float32Array);
+        const z: Float32Array | undefined = (sd?.getProp?.('z') as Float32Array) ?? (getStorageByName('z') as Float32Array);
+
+        if (!x || !y || !z || x.length === 0) {
+            console.error('[MaskTo3D] Missing x/y/z arrays.');
+            return;
+        }
+
+        let state: Uint8Array | undefined =
+            (sd?.getProp?.('state') as Uint8Array) ??
+            (sd?.state as Uint8Array) ??
+            (getStorageByName('state') as Uint8Array);
+
+        if (!state) {
+            const n0 = sd?.numSplats ?? splat?.numSplats ?? x.length;
+            state = new Uint8Array(n0);
+
+            // Attach to sd in the "standard" way used by other filters
+            if (typeof sd?.addProp === 'function') sd.addProp('state', state);
+            else sd.state = state;
+
+            // Also attach to properties, so code paths that read from properties still share the same buffer
+            const props = sd?.elements?.[0]?.properties;
+            if (Array.isArray(props) && !props.some((p: any) => p?.name === 'state')) {
+                props.push({ name: 'state', storage: state });
+            }
+
+            console.log('[MaskTo3D] Created state prop.');
+        }
+
+
 
         let deletedCount = 0;
         const worldPos = new Vec3();
 
         // --- 參數調整區 ---
         // 如果地板還是被砍，請調大此數值（例如 1.5）；如果雜訊太多，調小。
-        const FLOOR_PROTECTION_Y = -1.2; 
+        const FLOOR_PROTECTION_Y = -1.2;
         // ----------------
 
         const cameraToMaskMap = this.cameraPoses.map(pose => {
@@ -95,7 +124,7 @@ class MaskTo3DTool {
             // 1. 地板保護：如果點的位置非常低，直接跳過不刪除
             // 注意：COLMAP 座標中 Y 有可能向下，如果發現無效，請試著改為 y[i] < FLOOR_PROTECTION_Y
             if (y[i] < FLOOR_PROTECTION_Y) {
-                continue; 
+                continue;
             }
 
             let isVisibleAsForeground = false;
@@ -104,12 +133,12 @@ class MaskTo3DTool {
 
             for (const { pose, mask } of cameraToMaskMap) {
                 const proj = this.project(worldPos, pose);
-                
+
                 if (proj && mask && proj.u >= 0 && proj.u < mask.width && proj.v >= 0 && proj.v < mask.height) {
                     totalVisits++;
                     const idx = (proj.v * mask.width + proj.u) * 4;
-                    
-                    if (mask.data[idx] > 128) { 
+
+                    if (mask.data[idx] > 128) {
                         isVisibleAsForeground = true;
                         break; // 只要有一張是前景，就絕對保住
                     } else {
