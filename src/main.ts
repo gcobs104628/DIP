@@ -298,6 +298,7 @@ const main = async () => {
     events.on('tool.maskTo3D', () => {
         if (typeof maskTo3DTool.activate === 'function') {
             maskTo3DTool.activate(); 
+            knnOutlierTool.resetBaseline();
         } else {
             console.error("[main.ts] 錯誤：maskTo3DTool 缺少 activate 方法");
         }
@@ -307,9 +308,11 @@ const main = async () => {
     // 監聽右側滑桿事件（right-toolbar.ts fire 的那個）
     events.on('filter.scale', ({ minScale, maxScale }: { minScale: number; maxScale: number }) => {
         scaleFilterTool.applyScale(minScale, maxScale);
+        knnOutlierTool.resetBaseline();
     });
     events.on('filter.opacity', ({ threshold }: { threshold: number }) => {
         scaleFilterTool.applyOpacity(threshold);
+        knnOutlierTool.resetBaseline();
     });
     // --- NEW: group slider drags into a single undo ---
     events.on('filter.scale.begin', () => scaleFilterTool.begin('scale'));
@@ -328,6 +331,7 @@ const main = async () => {
 
     events.on('filter.knnOutlier', ({ k, threshold }: { k: number; threshold: number }) => {
         void knnOutlierTool.apply(k, threshold);
+        knnOutlierTool.resetBaseline();
     });
 
     events.on('filter.knnOutlier.reset', () => {

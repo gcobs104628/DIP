@@ -92,7 +92,7 @@ export class KnnOutlierFilterTool {
                 this.setParamsAndNotifyUI(beforeParams);
                 this.applyBytesAndRefresh(splat, state, beforeState);
             },
-            destroy: () => {}
+            destroy: () => { }
         };
 
         this.events.fire('edit.add', op, true);
@@ -122,6 +122,9 @@ export class KnnOutlierFilterTool {
         // Clear baseline so next apply captures a fresh baseline again
         this.baselineState = null;
         console.log('[KNNOutlier] Reset done.');
+    }
+    resetBaseline() {
+        this.baselineState = null;
     }
 
     async apply(k: number, threshold: number) {
